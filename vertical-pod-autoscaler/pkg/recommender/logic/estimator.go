@@ -55,6 +55,11 @@ type minResourcesEstimator struct {
 	baseEstimator ResourceEstimator
 }
 
+type maxResourcesEstimator struct {
+	maxResources  model.Resources
+	baseEstimator ResourceEstimator
+}
+
 type confidenceMultiplier struct {
 	multiplier    float64
 	exponent      float64
@@ -78,9 +83,18 @@ func WithMargin(marginFraction float64, baseEstimator ResourceEstimator) Resourc
 }
 
 // WithMinResources returns a given ResourceEstimator with minResources applied.
-// The returned resources are equal to the max(original resources, minResources)
+// The returned resources are equal to the max(original resources, minResources).
 func WithMinResources(minResources model.Resources, baseEstimator ResourceEstimator) ResourceEstimator {
 	return &minResourcesEstimator{minResources, baseEstimator}
+}
+
+// WithMaxResources returns a given ResourceEstimator with maxResources applied.
+// The returned resources are equal to the min(original resources, maxResources).
+func WithMaxResources(maxResources model.Resources, baseEstimator ResourceEstimator) ResourceEstimator {
+	return &maxResourcesEstimator{
+		maxResources:  maxResources,
+		baseEstimator: baseEstimator,
+	}
 }
 
 // WithConfidenceMultiplier returns a given ResourceEstimator with confidenceMultiplier applied.
@@ -153,6 +167,20 @@ func (e *minResourcesEstimator) GetResourceEstimation(s *model.AggregateContaine
 	for resource, resourceAmount := range originalResources {
 		if resourceAmount < e.minResources[resource] {
 			resourceAmount = e.minResources[resource]
+		}
+		newResources[resource] = resourceAmount
+	}
+	return newResources
+}
+
+func (e *maxResourcesEstimator) GetResourceEstimation(s *model.AggregateContainerState) model.Resources {
+	originalResources := e.baseEstimator.GetResourceEstimation(s)
+	newResources := make(model.Resources)
+	for resource, resourceAmount := range originalResources {
+		if maxResource, ok := e.maxResources[resource]; ok {
+			if resourceAmount > maxResource {
+				resourceAmount = maxResource
+			}
 		}
 		newResources[resource] = resourceAmount
 	}

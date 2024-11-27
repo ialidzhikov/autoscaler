@@ -28,6 +28,8 @@ var (
 	safetyMarginFraction       = flag.Float64("recommendation-margin-fraction", 0.15, `Fraction of usage added as the safety margin to the recommended request`)
 	podMinCPUMillicores        = flag.Float64("pod-recommendation-min-cpu-millicores", 25, `Minimum CPU recommendation for a pod`)
 	podMinMemoryMb             = flag.Float64("pod-recommendation-min-memory-mb", 250, `Minimum memory recommendation for a pod`)
+	containerMaxCPUMillicores  = flag.Float64("container-recommendation-max-cpu-millicores", -1, "Maximum CPU recommendation for a container. A non-positive value disables capping the CPU recommendation to a maximum.")
+	containerMaxMemoryMb       = flag.Float64("container-recommendation-max-memory-mb", -1, "Maximum memory recommendation for a container. A non-positive value disables capping the memory recommendation to a maximum.")
 	targetCPUPercentile        = flag.Float64("target-cpu-percentile", 0.9, "CPU usage percentile that will be used as a base for CPU target recommendation. Doesn't affect CPU lower bound, CPU upper bound nor memory recommendations.")
 	lowerBoundCPUPercentile    = flag.Float64("recommendation-lower-bound-cpu-percentile", 0.5, `CPU usage percentile that will be used for the lower bound on CPU recommendation.`)
 	upperBoundCPUPercentile    = flag.Float64("recommendation-upper-bound-cpu-percentile", 0.95, `CPU usage percentile that will be used for the upper bound on CPU recommendation.`)
@@ -68,16 +70,37 @@ func (r *podResourceRecommender) GetRecommendedPodResources(containerNameToAggre
 		return recommendation
 	}
 
+	targetEstimator := r.targetEstimator
+	lowerBoundEstimator := r.lowerBoundEstimator
+	upperBoundEstimator := r.upperBoundEstimator
+
 	fraction := 1.0 / float64(len(containerNameToAggregateStateMap))
 	minResources := model.Resources{
 		model.ResourceCPU:    model.ScaleResource(model.CPUAmountFromCores(*podMinCPUMillicores*0.001), fraction),
 		model.ResourceMemory: model.ScaleResource(model.MemoryAmountFromBytes(*podMinMemoryMb*1024*1024), fraction),
 	}
 
+	targetEstimator = WithMinResources(minResources, targetEstimator)
+	lowerBoundEstimator = WithMinResources(minResources, lowerBoundEstimator)
+	upperBoundEstimator = WithMinResources(minResources, upperBoundEstimator)
+
+	maxResources := make(model.Resources)
+	if *containerMaxCPUMillicores > 0 {
+		maxResources[model.ResourceCPU] = model.CPUAmountFromCores(*containerMaxCPUMillicores * 0.001)
+	}
+	if *containerMaxMemoryMb > 0 {
+		maxResources[model.ResourceMemory] = model.MemoryAmountFromBytes(*containerMaxMemoryMb * 1024 * 1024)
+	}
+	if len(maxResources) > 0 {
+		targetEstimator = WithMaxResources(maxResources, targetEstimator)
+		lowerBoundEstimator = WithMaxResources(maxResources, lowerBoundEstimator)
+		upperBoundEstimator = WithMaxResources(maxResources, upperBoundEstimator)
+	}
+
 	recommender := &podResourceRecommender{
-		WithMinResources(minResources, r.targetEstimator),
-		WithMinResources(minResources, r.lowerBoundEstimator),
-		WithMinResources(minResources, r.upperBoundEstimator),
+		targetEstimator:     targetEstimator,
+		lowerBoundEstimator: lowerBoundEstimator,
+		upperBoundEstimator: upperBoundEstimator,
 	}
 
 	for containerName, aggregatedContainerState := range containerNameToAggregateStateMap {

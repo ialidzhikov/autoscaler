@@ -138,7 +138,6 @@ func TestMarginEstimator(t *testing.T) {
 
 // Verifies that the MinResourcesEstimator returns at least MinResources.
 func TestMinResourcesEstimator(t *testing.T) {
-
 	minResources := model.Resources{
 		model.ResourceCPU:    model.CPUAmountFromCores(0.2),
 		model.ResourceMemory: model.MemoryAmountFromBytes(4e8),
@@ -158,4 +157,49 @@ func TestMinResourcesEstimator(t *testing.T) {
 	assert.Equal(t, 3.14, model.CoresFromCPUAmount(resourceEstimation[model.ResourceCPU]))
 	// Original Memory is below min resources
 	assert.Equal(t, 4e8, model.BytesFromMemoryAmount(resourceEstimation[model.ResourceMemory]))
+}
+
+func TestMaxResourcesEstimator(t *testing.T) {
+	maxResources := model.Resources{
+		model.ResourceCPU:    model.CPUAmountFromCores(3.0),
+		model.ResourceMemory: model.MemoryAmountFromBytes(4e8),
+	}
+	baseEstimator := NewConstEstimator(model.Resources{
+		model.ResourceCPU:    model.CPUAmountFromCores(3.14),
+		model.ResourceMemory: model.MemoryAmountFromBytes(2e7),
+	})
+
+	testedEstimator := &maxResourcesEstimator{
+		maxResources:  maxResources,
+		baseEstimator: baseEstimator,
+	}
+
+	s := model.NewAggregateContainerState()
+	resourceEstimation := testedEstimator.GetResourceEstimation(s)
+	// Original CPU is above max resources
+	assert.Equal(t, 3.0, model.CoresFromCPUAmount(resourceEstimation[model.ResourceCPU]))
+	// Original Memory is below max resources
+	assert.Equal(t, 2e7, model.BytesFromMemoryAmount(resourceEstimation[model.ResourceMemory]))
+}
+
+func TestMaxResourcesEstimatorWithMaxResourcesOnlyForMemory(t *testing.T) {
+	maxResources := model.Resources{
+		model.ResourceMemory: model.MemoryAmountFromBytes(1e6),
+	}
+	baseEstimator := NewConstEstimator(model.Resources{
+		model.ResourceCPU:    model.CPUAmountFromCores(3.14),
+		model.ResourceMemory: model.MemoryAmountFromBytes(2e7),
+	})
+
+	testedEstimator := &maxResourcesEstimator{
+		maxResources:  maxResources,
+		baseEstimator: baseEstimator,
+	}
+
+	s := model.NewAggregateContainerState()
+	resourceEstimation := testedEstimator.GetResourceEstimation(s)
+	// Original CPU as there is no max resource for CPU
+	assert.Equal(t, 3.14, model.CoresFromCPUAmount(resourceEstimation[model.ResourceCPU]))
+	// Original Memory is above max resources
+	assert.Equal(t, 1e6, model.BytesFromMemoryAmount(resourceEstimation[model.ResourceMemory]))
 }
